@@ -32,7 +32,8 @@ public:
       std::vector<double> RMS8MaxThreshold, std::vector<double> RMS8MaxCut,
       std::vector<double> LeftSlopeThreshold, std::vector<double> LeftSlopeCut,
       std::vector<double> RightSlopeThreshold, std::vector<double> RightSlopeCut,
-      std::vector<double> RightSlopeSmallThreshold, std::vector<double> RightSlopeSmallCut);
+      std::vector<double> RightSlopeSmallThreshold, std::vector<double> RightSlopeSmallCut,
+      bool UseDualFit);
    ~HBHEPulseShapeFlagSetter();
    void Clear();
    void SetPulseShapeFlags(HBHERecHit& hbhe, const HBHEDataFrame &digi,
@@ -45,10 +46,13 @@ private:
    std::vector<std::pair<double, double> > mLeftSlopeCut;
    std::vector<std::pair<double, double> > mRightSlopeCut;
    std::vector<std::pair<double, double> > mRightSlopeSmallCut;
+   bool mUseDualFit;
    std::vector<double> CumulativeIdealPulse;
 private:
    TriangleFitResult PerformTriangleFit(double Charge[10]);
    double PerformNominalFit(double Charge[10]);
+   double PerformDualNominalFit(double Charge[10]);
+   double DualNominalFitSingleTry(double Charge[10], int Offset, int Distance);
    double CalculateRMS8Max(double Charge[10]);
    double PerformLinearFit(double Charge[10]);
 private:

@@ -24,7 +24,8 @@ HBHEPulseShapeFlagSetter::HBHEPulseShapeFlagSetter(vector<double> LinearThreshol
    vector<double> RMS8MaxThreshold, vector<double> RMS8MaxCut,
    vector<double> LeftSlopeThreshold, vector<double> LeftSlopeCut,
    vector<double> RightSlopeThreshold, vector<double> RightSlopeCut,
-   vector<double> RightSlopeSmallThreshold, vector<double> RightSlopeSmallCut)
+   vector<double> RightSlopeSmallThreshold, vector<double> RightSlopeSmallCut,
+   bool UseDualFit)
 {
    for(int i = 0; i < (int)LinearThreshold.size() && i < (int)LinearCut.size(); i++)
       mLambdaLinearCut.push_back(pair<double, double>(LinearThreshold[i], LinearCut[i]));
@@ -45,6 +46,8 @@ HBHEPulseShapeFlagSetter::HBHEPulseShapeFlagSetter(vector<double> LinearThreshol
    for(int i = 0; i < (int)RightSlopeSmallThreshold.size() && i < (int)RightSlopeSmallCut.size(); i++)
       mRightSlopeSmallCut.push_back(pair<double, double>(RightSlopeSmallThreshold[i], RightSlopeSmallCut[i]));
    sort(mRightSlopeSmallCut.begin(), mRightSlopeSmallCut.end());
+
+   mUseDualFit = UseDualFit;
 
    Initialize();
 }
@@ -78,7 +81,12 @@ void HBHEPulseShapeFlagSetter::SetPulseShapeFlags(HBHERecHit& hbhe, const HBHEDa
    if(TotalCharge < 20)
       return;
    
-   double NominalChi2 = PerformNominalFit(Charge);
+   double NominalChi2 = 0;
+   if(mUseDualFit == false)
+      PerformNominalFit(Charge);
+   else
+      PerformDualNominalFit(Charge);
+
    double LinearChi2 = PerformLinearFit(Charge);
    double RMS8Max = CalculateRMS8Max(Charge);
    TriangleFitResult TriangleResult = PerformTriangleFit(Charge);
@@ -262,6 +270,115 @@ double HBHEPulseShapeFlagSetter::PerformNominalFit(double Charge[10])
    }
 
    return MinimumChi2;
+}
+
+double HBHEPulseShapeFlagSetter::PerformDualNominalFit(double Charge[10])
+{
+   double OverallMinimumChi2 = 1000000;
+
+   int AvailableDistance[] = {-100, -75, -50, 50, 75, 100};
+
+   for(int k = 0; k < 6; k++)
+   {
+      double SingleMinimumChi2 = 1000000;
+      int MinOffset = 0;
+
+      for(int i = 0; i + 250 < (int)CumulativeIdealPulse.size(); i = i + 10)
+      {
+         double Chi2 = DualNominalFitSingleTry(Charge, i, AvailableDistance[k]);
+
+         if(Chi2 < SingleMinimumChi2)
+         {
+            SingleMinimumChi2 = Chi2;
+            MinOffset = i;
+         }
+      }
+
+      for(int i = MinOffset - 15; i + 250 < (int)CumulativeIdealPulse.size() && i < MinOffset + 15; i++)
+      {
+         double Chi2 = DualNominalFitSingleTry(Charge, i, AvailableDistance[k]);
+         if(Chi2 < SingleMinimumChi2)
+            SingleMinimumChi2 = Chi2;
+      }
+
+      if(SingleMinimumChi2 < OverallMinimumChi2)
+         OverallMinimumChi2 = SingleMinimumChi2;
+   }
+
+   /*
+   cout << "Charge";
+   for(int i = 0; i < 10; i++)
+      cout << " " << Charge[i];
+   cout << endl;
+   cout << "Chi2 = " << OverallMinimumChi2 << endl;
+   */
+
+   return OverallMinimumChi2;
+}
+
+double HBHEPulseShapeFlagSetter::DualNominalFitSingleTry(double Charge[10], int Offset, int Distance)
+{
+   if(Offset < 0 || Offset + 250 >= (int)CumulativeIdealPulse.size())
+      return 1000000;
+   if(CumulativeIdealPulse[Offset+250] - CumulativeIdealPulse[Offset] < 1e-5)
+      return 1000000;
+
+   double F1[10] = {0};
+   double F2[10] = {0};
+
+   for(int j = 0; j < 10; j++)
+      F1[j] = CumulativeIdealPulse[Offset+j*25+25] - CumulativeIdealPulse[Offset+j*25];
+
+   for(int j = 0; j < 10; j++)
+   {
+      int OffsetTemp = Offset + j * 25 + Distance;
+      double C1 = 0;
+      double C2 = 0;
+      if(OffsetTemp + 25 < (int)CumulativeIdealPulse.size() && OffsetTemp + 25 >= 0)
+         C1 = CumulativeIdealPulse[OffsetTemp+25];
+      if(OffsetTemp + 25 >= (int)CumulativeIdealPulse.size())
+         C1 = CumulativeIdealPulse[CumulativeIdealPulse.size()-1];
+      if(OffsetTemp < (int)CumulativeIdealPulse.size() && OffsetTemp >= 0)
+         C2 = CumulativeIdealPulse[OffsetTemp];
+      if(OffsetTemp >= (int)CumulativeIdealPulse.size())
+         C2 = CumulativeIdealPulse[CumulativeIdealPulse.size()-1];
+      F2[j] = C1 - C2;
+   }
+
+   double SumF1F1 = 0;
+   double SumF1F2 = 0;
+   double SumF2F2 = 0;
+   double SumTF1 = 0;
+   double SumTF2 = 0;
+
+   for(int j = 0; j < 10; j++)
+   {
+      double Error = Charge[j];
+      if(Error < 1)
+         Error = 1;
+
+      SumF1F1 = SumF1F1 + F1[j] * F1[j] / Error;
+      SumF1F2 = SumF1F2 + F1[j] * F2[j] / Error;
+      SumF2F2 = SumF2F2 + F2[j] * F2[j] / Error;
+      SumTF1 = SumTF1 + F1[j] * Charge[j] / Error;
+      SumTF2 = SumTF2 + F2[j] * Charge[j] / Error;
+   }
+
+   double Height = (SumF1F2 * SumTF2 - SumF2F2 * SumTF1) / (SumF1F2 * SumF1F2 - SumF1F1 * SumF2F2);
+   double Height2 = (SumF1F2 * SumTF1 - SumF1F1 * SumTF2) / (SumF1F2 * SumF1F2 - SumF1F1 * SumF2F2);
+
+   double Chi2 = 0;
+   for(int j = 0; j < 10; j++)
+   {
+      double Error = Charge[j];
+      if(Error < 1)
+         Error = 1;
+
+      double Residual = Height * F1[j] + Height2 * F2[j] - Charge[j];
+      Chi2 = Chi2 + Residual * Residual / Error;
+   }
+
+   return Chi2;
 }
 
 double HBHEPulseShapeFlagSetter::CalculateRMS8Max(double Charge[10])

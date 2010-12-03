@@ -105,7 +105,8 @@ HcalHitReconstructor::HcalHitReconstructor(edm::ParameterSet const& conf):
             psPulseShape.getParameter<std::vector<double> >("RightSlopeThreshold"),
             psPulseShape.getParameter<std::vector<double> >("RightSlopeCut"),
             psPulseShape.getParameter<std::vector<double> >("RightSlopeSmallThreshold"),
-            psPulseShape.getParameter<std::vector<double> >("RightSlopeSmallCut"));
+            psPulseShape.getParameter<std::vector<double> >("RightSlopeSmallCut"),
+            psPulseShape.getParameter<bool>("UseDualFit"));
       }  // if (setPulseShapeFlags_)
     produces<HBHERecHitCollection>();
   } else if (!strcasecmp(subd.c_str(),"HO")) {

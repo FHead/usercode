@@ -56,7 +56,8 @@ hbheprereco = cms.EDProducer(
        RightSlopeThreshold = cms.vdouble(40, 60, 100, 140, 200),
        RightSlopeCut = cms.vdouble(6.2, 5.5, 4.75, 4.38, 4.15),
        RightSlopeSmallThreshold = cms.vdouble(60, 80, 110, 140, 200),
-       RightSlopeSmallCut = cms.vdouble(1.05, 1.135, 1.175, 1.19, 1.17)),
+       RightSlopeSmallCut = cms.vdouble(1.05, 1.135, 1.175, 1.19, 1.17),
+       UseDualFit = cms.bool(False)),
 
     # shaped cut parameters are pairs of (energy, time threshold) values
     # These must be ordered by increaseing energy!
