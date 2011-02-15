@@ -545,10 +545,14 @@ double HcalNoiseMonitor::PerformNominalFit(double Charge[10])
          // get ideal pulse component for this time slice....
          F = CumulativeIdealPulse[i+j*25+25] - CumulativeIdealPulse[i+j*25];
 
+         double Error2 = Charge[j];
+         if(Error2 < 1)
+            Error2 = 1;
+
          // ...and increment various summations
-         SumF2 += F * F / fabs(Charge[j]);
-         SumTF += F * Charge[j] / fabs(Charge[j]);
-         SumT2 += fabs(Charge[j]);
+         SumF2 += F * F / Error2;
+         SumTF += F * Charge[j] / Error2;
+         SumT2 += Charge[j] * Charge[j] / Error2;
       }
 
       /* chi2= sum((Charge[j]-aF)^2/|Charge[j]|
