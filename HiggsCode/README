@@ -92,10 +92,10 @@ Otherwise these are the same.
 
 ##### AttachLikelihood #####
 
-As the name suggests, it takes in our step2/3 trees, and attach a new
+As the name suggests, it takes in our final trees, and attach a new
 branch.  We need 4 arguments in this case:
 
-- Root file.  This is the step2/3 tree we have, for example hzzTree_id1125.root
+- Root file.  This is the trees we have, for example hzzTree_id1125.root
 - MapFileBase.  This is the common part of file name for the maps.  I assume
    that the maps are named as ("%s_%d.map7", MapFileBase, HiggsMass).  It can
    contain directories.
