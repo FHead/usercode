@@ -12,7 +12,7 @@ To use the code, first setup your preferred root version, then do
 which will compile everything for you.  There will be 3 executables
 in the bin directory.  Even though all expressions are in, this step
 should take about 1 minute to compile, as opposed to 20+ minutes
-from some other package.
+from some other package.  (~5 minutes if you add -O2 flag)
 
 
 

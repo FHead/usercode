@@ -14,3 +14,4 @@ library/%.o: source/%.cc
 
 clean:
 	rm -f library/* bin/*
+
