@@ -17,6 +17,7 @@ There is a RECO_RAW2DIGI_RECO.py file available in this directory as an example 
 run on RAW data.  To run it, first get the example RAW file from Yi's public directory
 on lxplus:
 
+> cd $CMSSW_BASE/src/HcalNoies/HcalNoiseAnalyzer/config
 > cp ~chenyi/public/HcalNoiseExample/5C1B1DE5-9B38-E211-A048-001D09F24FBA.root .
 
 The file is only 3.5M so no worries about disk space.  Then run cmsRun as usual
