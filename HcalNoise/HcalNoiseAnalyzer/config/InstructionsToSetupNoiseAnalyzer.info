@@ -1,0 +1,80 @@
+################################
+## Check out code and compile ##
+################################
+
+> scramv1 project CMSSW CMSSW_5_3_7
+> cd CMSSW_5_3_7/src
+> eval `scramv1 runtime -sh`  # or '-csh' if you're using c-shell
+> cvs co -r V00-00-11632 -d HcalNoise/HcalNoiseAnalyzer UserCode/YiChen/HcalNoise/HcalNoiseAnalyzer
+> scramv1 build
+
+
+##########################
+## Test run on one file ##
+##########################
+
+There is a RECO_RAW2DIGI_RECO.py file available in this directory as an example on how to
+run on RAW data.  To run it, first get the example RAW file from Yi's public directory:
+
+> cp ~chenyi/public/HcalNoiseExample/5C1B1DE5-9B38-E211-A048-001D09F24FBA.root .
+
+The file is only 3.5M so no worries about disk space.  Then run cmsRun as usual
+
+> cmsRun RECO_RAW2DIGI_RECO.py
+
+There should be 88 events in the file, and in the end you'll get an output file called
+"NoiseTree.root".  If you plot "PulseCount" variable or "HPDHits" variable, you should
+see spikes at 18/72 which is indicative of HPD/RBX noise.
+
+
+
+##############
+## Appendix ##
+##############
+
+ps. the example python config file is the result of this process:
+
+First run CMS driver to sort things out for us
+> cmsDriver.py RECO --data -s RAW2DIGI,RECO \
+     --filein file:5C1B1DE5-9B38-E211-A048-001D09F24FBA.root \
+     --fileout DummyOutput.root \
+     --conditions FT_R_53_V18::All --no_exec
+
+Edit the output python config, disable the pool output module and insert the following:
+
+> # Hcal noise analyzers
+> process.HBHENoiseFilterResultProducer = cms.EDProducer(
+>    'HBHENoiseFilterResultProducer',
+>    noiselabel = cms.InputTag('hcalnoise'),
+>    minRatio = cms.double(-999),
+>    maxRatio = cms.double(999),
+>    minHPDHits = cms.int32(17),
+>    minRBXHits = cms.int32(999),
+>    minHPDNoOtherHits = cms.int32(10),
+>    minZeros = cms.int32(10),
+>    minHighEHitTime = cms.double(-9999.0),
+>    maxHighEHitTime = cms.double(9999.0),
+>    maxRBXEMF = cms.double(-999.0),
+>    minNumIsolatedNoiseChannels = cms.int32(10),
+>    minIsolatedNoiseSumE = cms.double(50.0),
+>    minIsolatedNoiseSumEt = cms.double(25.0),
+>    useTS4TS5 = cms.bool(True),
+>    IgnoreTS4TS5ifJetInLowBVRegion = cms.bool(True),
+>    jetlabel = cms.InputTag('ak5PFJets'),
+>    maxjetindex = cms.int32(0),
+>    maxNHF = cms.double(0.9)
+>    )
+> process.TFileService = cms.Service("TFileService",
+>    fileName = cms.string("NoiseTree.root")
+>    )
+> process.ExportTree = cms.EDAnalyzer("HcalNoiseAnalyzer",
+>    HBHERecHitCollection = cms.untracked.string('hbhereco')
+>    )
+
+Then edit the execution path to actually run the new modules
+
+> process.reconstruction_step = cms.Path(process.reconstruction * process.HBHENoiseFilterResultProducer * process.ExportTree)
+
+
+
+
