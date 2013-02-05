@@ -14,7 +14,8 @@
 ##########################
 
 There is a RECO_RAW2DIGI_RECO.py file available in this directory as an example on how to
-run on RAW data.  To run it, first get the example RAW file from Yi's public directory:
+run on RAW data.  To run it, first get the example RAW file from Yi's public directory
+on lxplus:
 
 > cp ~chenyi/public/HcalNoiseExample/5C1B1DE5-9B38-E211-A048-001D09F24FBA.root .
 
@@ -26,6 +27,12 @@ There should be 88 events in the file, and in the end you'll get an output file 
 "NoiseTree.root".  If you plot "PulseCount" variable or "HPDHits" variable, you should
 see spikes at 18/72 which is indicative of HPD/RBX noise.
 
+
+#################
+## Tag history ##
+#################
+
+V00-00-11632 (Feb. 5, 2013) - First version of Hcal noise tree
 
 
 ##############
