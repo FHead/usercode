@@ -35,7 +35,7 @@ process.options = cms.untracked.PSet(
 
 # Production Info
 process.configurationMetadata = cms.untracked.PSet(
-    version = cms.untracked.string('$Revision: 1.381.2.13 $'),
+    version = cms.untracked.string('$Revision: 1.1 $'),
     annotation = cms.untracked.string('RECO nevts:1'),
     name = cms.untracked.string('PyReleaseValidation')
 )
@@ -57,7 +57,7 @@ process.configurationMetadata = cms.untracked.PSet(
 
 # Other statements
 from Configuration.AlCa.GlobalTag import GlobalTag
-process.GlobalTag = GlobalTag(process.GlobalTag, 'FT_R_53_V18::All', '')
+process.GlobalTag = GlobalTag(process.GlobalTag, 'FT_P_V42D::All', '')
 
 # Hcal noise analyzers
 process.HBHENoiseFilterResultProducer = cms.EDProducer(

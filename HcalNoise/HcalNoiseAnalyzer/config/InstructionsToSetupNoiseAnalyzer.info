@@ -2,10 +2,10 @@
 ## Check out code and compile ##
 ################################
 
-> scramv1 project CMSSW CMSSW_5_3_7
-> cd CMSSW_5_3_7/src
+> scramv1 project CMSSW CMSSW_5_3_7_patch6
+> cd CMSSW_5_3_7_patch6/src
 > eval `scramv1 runtime -sh`  # or '-csh' if you're using c-shell
-> cvs co -r V00-00-11632 -d HcalNoise/HcalNoiseAnalyzer UserCode/YiChen/HcalNoise/HcalNoiseAnalyzer
+> cvs co -r V00-01-11632 -d HcalNoise/HcalNoiseAnalyzer UserCode/YiChen/HcalNoise/HcalNoiseAnalyzer
 > scramv1 build
 
 
@@ -34,6 +34,7 @@ see spikes at 18/72 which is indicative of HPD/RBX noise.
 #################
 
 V00-00-11632 (Feb. 5, 2013) - First version of Hcal noise tree
+V00-01-11632 (Feb. 12, 2013) - Cosmetic changes to BuildFile.xml; Added FillHBHE flag
 
 
 ##############
@@ -46,7 +47,7 @@ First run CMS driver to sort things out for us
 > cmsDriver.py RECO --data -s RAW2DIGI,RECO \
      --filein file:5C1B1DE5-9B38-E211-A048-001D09F24FBA.root \
      --fileout DummyOutput.root \
-     --conditions FT_R_53_V18::All --no_exec
+     --conditions FT_P_V42D::All --no_exec
 
 Edit the output python config, disable the pool output module and insert the following:
 

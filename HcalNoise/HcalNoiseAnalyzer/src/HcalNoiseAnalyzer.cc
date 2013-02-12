@@ -14,7 +14,7 @@
 //
 // Original Author:  Yi Chen,40 3-B12,+41227675736,
 //         Created:  Wed Oct 27 11:08:10 CEST 2010
-// $Id$
+// $Id: HcalNoiseAnalyzer.cc,v 1.1 2013/02/05 12:36:37 chenyi Exp $
 //
 //
 //---------------------------------------------------------------------------
@@ -99,6 +99,7 @@ private:
    virtual void endJob();
 
 private:
+   bool FillHBHE;                  // Whether to store HBHE information or not
    bool FillHF;                    // Whether to store HF information or not
    double TotalChargeThreshold;    // To avoid trees from overweight, only store digis above some threshold
    string sHBHERecHitCollection;   // Name of the HBHE rechit collection
@@ -221,6 +222,7 @@ private:
 HcalNoiseAnalyzer::HcalNoiseAnalyzer(const edm::ParameterSet& iConfig)
 {
    // Get stuff and initialize here
+   FillHBHE = iConfig.getUntrackedParameter<bool>("FillHBHE", true);
    FillHF = iConfig.getUntrackedParameter<bool>("FillHF", false);
    TotalChargeThreshold = iConfig.getUntrackedParameter<double>("TotalChargeThreshold", 10);
 
@@ -589,16 +591,19 @@ void HcalNoiseAnalyzer::beginJob()
    OutputTree->Branch("NumberOfCosmicMuonCandidates", &NumberOfCosmicMuonCandidates,
       "NumberOfCosmicMuonCandidates/I");
 
-   OutputTree->Branch("PulseCount", &PulseCount, "PulseCount/I");
-   OutputTree->Branch("Charge", &Charge, "Charge[5184][10]/D");
-   OutputTree->Branch("Pedestal", &Pedestal, "Pedestal[5184][10]/D");
-   OutputTree->Branch("Energy", &Energy, "Energy[5184]/D");
-   OutputTree->Branch("IEta", &IEta, "IEta[5184]/I");
-   OutputTree->Branch("IPhi", &IPhi, "IPhi[5184]/I");
-   OutputTree->Branch("Depth", &Depth, "Depth[5184]/I");
-   OutputTree->Branch("RecHitTime", &RecHitTime, "RecHitTime[5184]/D");
-   OutputTree->Branch("FlagWord", &FlagWord, "FlagWord[5184]/i");
-   OutputTree->Branch("AuxWord", &AuxWord, "AuxWord[5184]/i");
+   if(FillHBHE == true)
+   {
+      OutputTree->Branch("PulseCount", &PulseCount, "PulseCount/I");
+      OutputTree->Branch("Charge", &Charge, "Charge[5184][10]/D");
+      OutputTree->Branch("Pedestal", &Pedestal, "Pedestal[5184][10]/D");
+      OutputTree->Branch("Energy", &Energy, "Energy[5184]/D");
+      OutputTree->Branch("IEta", &IEta, "IEta[5184]/I");
+      OutputTree->Branch("IPhi", &IPhi, "IPhi[5184]/I");
+      OutputTree->Branch("Depth", &Depth, "Depth[5184]/I");
+      OutputTree->Branch("RecHitTime", &RecHitTime, "RecHitTime[5184]/D");
+      OutputTree->Branch("FlagWord", &FlagWord, "FlagWord[5184]/i");
+      OutputTree->Branch("AuxWord", &AuxWord, "AuxWord[5184]/i");
+   }
 
    if(FillHF == true)
    {
