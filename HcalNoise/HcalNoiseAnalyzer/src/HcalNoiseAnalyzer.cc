@@ -14,7 +14,7 @@
 //
 // Original Author:  Yi Chen,40 3-B12,+41227675736,
 //         Created:  Wed Oct 27 11:08:10 CEST 2010
-// $Id: HcalNoiseAnalyzer.cc,v 1.1 2013/02/05 12:36:37 chenyi Exp $
+// $Id: HcalNoiseAnalyzer.cc,v 1.2 2013/02/12 12:36:03 chenyi Exp $
 //
 //
 //---------------------------------------------------------------------------
@@ -42,6 +42,7 @@ using namespace std;
 #include "DataFormats/HcalRecHit/interface/HcalRecHitCollections.h"
 #include "DataFormats/HcalRecHit/interface/HBHERecHit.h"
 #include "DataFormats/HcalRecHit/interface/HFRecHit.h"
+#include "DataFormats/HcalRecHit/interface/HORecHit.h"
 #include "DataFormats/HcalDigi/interface/HcalDigiCollections.h"
 
 #include "DataFormats/EcalRecHit/interface/EcalRecHitCollections.h"
@@ -99,8 +100,9 @@ private:
    virtual void endJob();
 
 private:
-   bool FillHBHE;                  // Whether to store HBHE information or not
-   bool FillHF;                    // Whether to store HF information or not
+   bool FillHBHE;                  // Whether to store HBHE digi-level information or not
+   bool FillHF;                    // Whether to store HF digi-level information or not
+   bool FillHO;                    // Whether to store HO digi-level information or not
    double TotalChargeThreshold;    // To avoid trees from overweight, only store digis above some threshold
    string sHBHERecHitCollection;   // Name of the HBHE rechit collection
    edm::Service<TFileService> FileService;
@@ -173,6 +175,15 @@ private:
    int HFDepth[5184];
    double HFEnergy[5184];
 
+   // HO rechits and digis
+   int HOPulseCount;
+   int HOADC[2160][10];
+   double HOCharge[2160][10];
+   double HOPedestal[2160][10];
+   int HOIEta[2160];
+   int HOIPhi[2160];
+   double HOEnergy[2160];
+
    // HBHE RBX energy and mega-pulse shape
    double RBXCharge[72][10];
    double RBXEnergy[72];
@@ -205,6 +216,14 @@ private:
    int JetCount50;
    int JetCount100;
 
+   // Summary variables for HO
+   double HOMaxEnergyRing0, HOSecondMaxEnergyRing0;
+   int HOMaxEnergyIDRing0, HOSecondMaxEnergyIDRing0;
+   int HOHitCount100Ring0, HOHitCount150Ring0;
+   double HOMaxEnergyRing12, HOSecondMaxEnergyRing12;
+   int HOMaxEnergyIDRing12, HOSecondMaxEnergyIDRing12;
+   int HOHitCount100Ring12, HOHitCount150Ring12;
+
 private:
    TTree *OutputTree;
 
@@ -224,6 +243,7 @@ HcalNoiseAnalyzer::HcalNoiseAnalyzer(const edm::ParameterSet& iConfig)
    // Get stuff and initialize here
    FillHBHE = iConfig.getUntrackedParameter<bool>("FillHBHE", true);
    FillHF = iConfig.getUntrackedParameter<bool>("FillHF", false);
+   FillHO = iConfig.getUntrackedParameter<bool>("FillHO", false);
    TotalChargeThreshold = iConfig.getUntrackedParameter<double>("TotalChargeThreshold", 10);
 
    sHBHERecHitCollection = iConfig.getUntrackedParameter<string>("HBHERecHits", "hbhereco");
@@ -249,11 +269,17 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
    Handle<HFRecHitCollection> hHFRecHits;
    iEvent.getByLabel(InputTag("hfreco"), hHFRecHits);
 
+   Handle<HORecHitCollection> hHORecHits;
+   iEvent.getByLabel(InputTag("horeco"), hHORecHits);
+
    Handle<HBHEDigiCollection> hHBHEDigis;
    iEvent.getByType(hHBHEDigis);
 
    Handle<HFDigiCollection> hHFDigis;
    iEvent.getByType(hHFDigis);
+
+   Handle<HODigiCollection> hHODigis;
+   iEvent.getByType(hHODigis);
 
    Handle<EcalRecHitCollection> hEBRecHits;
    iEvent.getByLabel(InputTag("ecalRecHit", "EcalRecHitsEB"), hEBRecHits);
@@ -358,6 +384,14 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
    {
       HcalDetId id = (*hHFRecHits)[i].id();
       HFRecHitIndex.insert(pair<HcalDetId, int>(id, i));
+   }
+
+   // HO rechit maps
+   map<HcalDetId, int> HORecHitIndex;
+   for(int i = 0; i < (int)hHORecHits->size(); i++)
+   {
+      HcalDetId id = (*hHORecHits)[i].id();
+      HORecHitIndex.insert(pair<HcalDetId, int>(id, i));
    }
 
    // triggers
@@ -487,6 +521,39 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
       HFPulseCount = HFPulseCount + 1;
    }
 
+   // Loop over HO digis
+   HOPulseCount = 0;
+   for(HODigiCollection::const_iterator iter = hHODigis->begin(); iter != hHODigis->end(); iter++)
+   {
+      HcalDetId id = iter->id();
+
+      HOIEta[HOPulseCount] = id.ieta();
+      HOIPhi[HOPulseCount] = id.iphi();
+
+      // ADC -> fC
+      const HcalCalibrations &Calibrations = hConditions->getHcalCalibrations(id);
+      const HcalQIECoder *ChannelCoder = hConditions->getHcalCoder(id);
+      const HcalQIEShape *Shape = hConditions->getHcalShape();
+      HcalCoderDb Coder(*ChannelCoder, *Shape);
+      CaloSamples Tool;
+      Coder.adc2fC(*iter, Tool);
+
+      // Fill!
+      for(int i = 0; i < iter->size(); i++)
+      {
+         const HcalQIESample &QIE = iter->sample(i);
+
+         HOADC[HOPulseCount][i] = iter->sample(i).adc();
+
+         HOPedestal[HOPulseCount][i] = Calibrations.pedestal(QIE.capid());
+         HOCharge[HOPulseCount][i] = Tool[i] - HOPedestal[HOPulseCount][i];
+      }
+
+      HOEnergy[HOPulseCount] = (*hHORecHits)[HORecHitIndex[id]].energy();
+
+      HOPulseCount = HOPulseCount + 1;
+   }
+
    // muons
    NumberOfMuonCandidates = hStandardMuon->size();
    NumberOfCosmicMuonCandidates = hCosmicMuon->size();
@@ -523,8 +590,10 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
          LeadingJetEta = (*hCaloJets)[iter->second].eta();
          LeadingJetPhi = (*hCaloJets)[iter->second].phi();
          LeadingJetPt = (*hCaloJets)[iter->second].pt();
-         LeadingJetHad = (*hCaloJets)[iter->second].hadEnergyInHB() + (*hCaloJets)[iter->second].hadEnergyInHE() + (*hCaloJets)[iter->second].hadEnergyInHF();
-         LeadingJetEM = (*hCaloJets)[iter->second].emEnergyInEB() + (*hCaloJets)[iter->second].emEnergyInEE() + (*hCaloJets)[iter->second].emEnergyInHF();
+         LeadingJetHad = (*hCaloJets)[iter->second].hadEnergyInHB()
+            + (*hCaloJets)[iter->second].hadEnergyInHE() + (*hCaloJets)[iter->second].hadEnergyInHF();
+         LeadingJetEM = (*hCaloJets)[iter->second].emEnergyInEB()
+            + (*hCaloJets)[iter->second].emEnergyInEE() + (*hCaloJets)[iter->second].emEnergyInHF();
       }
    }
 
@@ -536,8 +605,59 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
          FollowingJetEta = (*hCaloJets)[iter->second].eta();
          FollowingJetPhi = (*hCaloJets)[iter->second].phi();
          FollowingJetPt = (*hCaloJets)[iter->second].pt();
-         FollowingJetHad = (*hCaloJets)[iter->second].hadEnergyInHB() + (*hCaloJets)[iter->second].hadEnergyInHE() + (*hCaloJets)[iter->second].hadEnergyInHF();
-         FollowingJetEM = (*hCaloJets)[iter->second].emEnergyInEB() + (*hCaloJets)[iter->second].emEnergyInEE() + (*hCaloJets)[iter->second].emEnergyInHF();
+         FollowingJetHad = (*hCaloJets)[iter->second].hadEnergyInHB()
+            + (*hCaloJets)[iter->second].hadEnergyInHE() + (*hCaloJets)[iter->second].hadEnergyInHF();
+         FollowingJetEM = (*hCaloJets)[iter->second].emEnergyInEB()
+            + (*hCaloJets)[iter->second].emEnergyInEE() + (*hCaloJets)[iter->second].emEnergyInHF();
+      }
+   }
+
+   // HO Summary variables
+   for(int i = 0; i < (int)hHORecHits->size(); i++)
+   {
+      HcalDetId id = (*hHORecHits)[i].id();
+
+      double energy = (*hHORecHits)[i].energy();
+      int ieta = id.ieta();
+      int iphi = id.iphi();
+      int InternalHOID = 100 * (ieta + 50) + iphi;
+
+      bool IsRing0 = false;
+      if(ieta >= -4 && ieta <= 4)   // otherwise it's ring 1/2
+         IsRing0 = true;
+
+      if(IsRing0 == true && energy > 100)
+         HOHitCount100Ring0 = HOHitCount100Ring0 + 1;
+      if(IsRing0 == true && energy > 150)
+         HOHitCount150Ring0 = HOHitCount150Ring0 + 1;
+      if(IsRing0 == true && energy > HOMaxEnergyRing0)
+      {
+         HOSecondMaxEnergyRing0 = HOMaxEnergyRing0;
+         HOSecondMaxEnergyIDRing0 = HOMaxEnergyIDRing0;
+         HOMaxEnergyRing0 = energy;
+         HOMaxEnergyIDRing0 = InternalHOID;
+      }
+      else if(IsRing0 == true && energy > HOSecondMaxEnergyRing0)
+      {
+         HOSecondMaxEnergyRing0 = energy;
+         HOSecondMaxEnergyIDRing0 = InternalHOID;
+      }
+      
+      if(IsRing0 == false && energy > 100)
+         HOHitCount100Ring12 = HOHitCount100Ring12 + 1;
+      if(IsRing0 == false && energy > 150)
+         HOHitCount150Ring12 = HOHitCount150Ring12 + 1;
+      if(IsRing0 == false && energy > HOMaxEnergyRing12)
+      {
+         HOSecondMaxEnergyRing12 = HOMaxEnergyRing12;
+         HOSecondMaxEnergyIDRing12 = HOMaxEnergyIDRing12;
+         HOMaxEnergyRing12 = energy;
+         HOMaxEnergyIDRing12 = InternalHOID;
+      }
+      else if(IsRing0 == false && energy > HOSecondMaxEnergyRing12)
+      {
+         HOSecondMaxEnergyRing12 = energy;
+         HOSecondMaxEnergyIDRing12 = InternalHOID;
       }
    }
 
@@ -548,7 +668,7 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
 void HcalNoiseAnalyzer::beginJob()
 {
    // Make branches in the output trees
-   OutputTree = FileService->make<TTree>("HcalNoiseTree", "Hcal noise tree version 1,1632");
+   OutputTree = FileService->make<TTree>("HcalNoiseTree", "Hcal noise tree version 1,1671");
 
    OutputTree->Branch("RunNumber", &RunNumber, "RunNumber/LL");
    OutputTree->Branch("EventNumber", &EventNumber, "EventNumber/LL");
@@ -617,6 +737,17 @@ void HcalNoiseAnalyzer::beginJob()
       OutputTree->Branch("HFEnergy", &HFEnergy, "HFEnergy[5184]/D");
    }
 
+   if(FillHO == true)
+   {
+      OutputTree->Branch("HOPulseCount", &HOPulseCount, "HOPulseCount/I");
+      OutputTree->Branch("HOADC", &HOADC, "HOADC[2160][10]/I");
+      OutputTree->Branch("HOCharge", &HOCharge, "HOCharge[2160][10]/D");
+      OutputTree->Branch("HOPedestal", &HOPedestal, "HOPedestal[2160][10]/D");
+      OutputTree->Branch("HOIPhi", &HOIPhi, "HOIPhi[2160]/I");
+      OutputTree->Branch("HOIEta", &HOIEta, "HOIEta[2160]/I");
+      OutputTree->Branch("HOEnergy", &HOEnergy, "HOEnergy[2160]/D");
+   }
+   
    OutputTree->Branch("RBXCharge", &RBXCharge, "RBXCharge[72][10]/D");
    OutputTree->Branch("RBXEnergy", &RBXEnergy, "RBXEnergy[72]/D");
    OutputTree->Branch("RBXCharge15", &RBXCharge15, "RBXCharge15[72][10]/D");
@@ -642,7 +773,20 @@ void HcalNoiseAnalyzer::beginJob()
    OutputTree->Branch("JetCount30", &JetCount30, "JetCount30/I");
    OutputTree->Branch("JetCount50", &JetCount50, "JetCount50/I");
    OutputTree->Branch("JetCount100", &JetCount100, "JetCount100/I");
-
+   
+   OutputTree->Branch("HOMaxEnergyRing0", &HOMaxEnergyRing0, "HOMaxEnergyRing0/D");
+   OutputTree->Branch("HOSecondMaxEnergyRing0", &HOSecondMaxEnergyRing0, "HOSecondMaxEnergyRing0/D");
+   OutputTree->Branch("HOMaxEnergyIDRing0", &HOMaxEnergyIDRing0, "HOMaxEnergyIDRing0/I");
+   OutputTree->Branch("HOSecondMaxEnergyIDRing0", &HOSecondMaxEnergyIDRing0, "HOSecondMaxEnergyIDRing0/I");
+   OutputTree->Branch("HOHitCount100Ring0", &HOHitCount100Ring0, "HOHitCount100Ring0/I");
+   OutputTree->Branch("HOHitCount150Ring0", &HOHitCount150Ring0, "HOHitCount150Ring0/I");
+   OutputTree->Branch("HOMaxEnergyRing12", &HOMaxEnergyRing12, "HOMaxEnergyRing12/D");
+   OutputTree->Branch("HOSecondMaxEnergyRing12", &HOSecondMaxEnergyRing12, "HOSecondMaxEnergyRing12/D");
+   OutputTree->Branch("HOMaxEnergyIDRing12", &HOMaxEnergyIDRing12, "HOMaxEnergyIDRing12/I");
+   OutputTree->Branch("HOSecondMaxEnergyIDRing12", &HOSecondMaxEnergyIDRing12, "HOSecondMaxEnergyIDRing12/I");
+   OutputTree->Branch("HOHitCount100Ring12", &HOHitCount100Ring12, "HOHitCount100Ring12/I");
+   OutputTree->Branch("HOHitCount150Ring12", &HOHitCount150Ring12, "HOHitCount150Ring12/I");
+   
    OutputTree->Branch("OfficialDecision", &OfficialDecision, "OfficialDecision/O");
 }
 //---------------------------------------------------------------------------
@@ -728,6 +872,20 @@ void HcalNoiseAnalyzer::ClearVariables()
       HFEnergy[i] = 0;
    }
 
+   HOPulseCount = 0;
+   for(int i = 0; i < 2160; i++)
+   {
+      for(int j = 0; j < 10; j++)
+      {
+         HOADC[i][j] = 0;
+         HOCharge[i][j] = 0;
+         HOPedestal[i][j] = 0;
+      }
+      HOIPhi[i] = 0;
+      HOIEta[i] = 0;
+      HOEnergy[i] = 0;
+   }
+
    for(int i = 0; i < 72; i++)
    {
       for(int j = 0; j < 10; j++)
@@ -757,6 +915,19 @@ void HcalNoiseAnalyzer::ClearVariables()
    JetCount50 = 0;
    JetCount100 = 0;
 
+   HOMaxEnergyRing0 = 0;
+   HOSecondMaxEnergyRing0 = 0;
+   HOMaxEnergyIDRing0 = 0;
+   HOSecondMaxEnergyIDRing0 = 0;
+   HOHitCount100Ring0 = 0;
+   HOHitCount150Ring0 = 0;
+   HOMaxEnergyRing12 = 0;
+   HOSecondMaxEnergyRing12 = 0;
+   HOMaxEnergyIDRing12 = 0; 
+   HOSecondMaxEnergyIDRing12 = 0;
+   HOHitCount100Ring12 = 0;
+   HOHitCount150Ring12 = 0;
+   
    OfficialDecision = false;
 }
 //---------------------------------------------------------------------------
