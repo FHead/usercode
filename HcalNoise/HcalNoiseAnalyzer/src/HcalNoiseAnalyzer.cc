@@ -14,13 +14,14 @@
 //
 // Original Author:  Yi Chen,40 3-B12,+41227675736,
 //         Created:  Wed Oct 27 11:08:10 CEST 2010
-// $Id: HcalNoiseAnalyzer.cc,v 1.2 2013/02/12 12:36:03 chenyi Exp $
+// $Id: HcalNoiseAnalyzer.cc,v 1.3 2013/03/04 14:23:21 chenyi Exp $
 //
 //
 //---------------------------------------------------------------------------
 #include <memory>
 #include <string>
 #include <map>
+#include <iostream>
 using namespace std;
 //---------------------------------------------------------------------------
 #include "TTree.h"
@@ -37,6 +38,12 @@ using namespace std;
 #include "CommonTools/UtilAlgos/interface/TFileService.h"
 
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
+
+#include "RecoLocalCalo/HcalRecAlgos/interface/HcalSimpleRecAlgo.h"
+#include "CalibCalorimetry/HcalAlgos/interface/HcalPulseContainmentManager.h"
+#include "CondFormats/HcalObjects/interface/HcalRecoParams.h"
+#include "CondFormats/HcalObjects/interface/HcalRecoParam.h"
+#include "CalibCalorimetry/HcalAlgos/interface/HcalDbASCIIIO.h"
 
 #include "DataFormats/HcalDetId/interface/HcalDetId.h"
 #include "DataFormats/HcalRecHit/interface/HcalRecHitCollections.h"
@@ -86,7 +93,9 @@ using namespace std;
 #include "DataFormats/JetReco/interface/CaloJet.h"
 #include "DataFormats/JetReco/interface/CaloJetCollection.h"
 //---------------------------------------------------------------------------
+static double MaximumFractionalError = 0.002;
 class HcalNoiseAnalyzer;
+double ECorr(int ieta, int iphi, double energy);
 //---------------------------------------------------------------------------
 class HcalNoiseAnalyzer : public edm::EDAnalyzer
 {
@@ -98,6 +107,8 @@ private:
    virtual void beginJob();
    virtual void analyze(const edm::Event&, const edm::EventSetup&);
    virtual void endJob();
+   void beginRun(const edm::Run&, const edm::EventSetup&);
+   void endRun(const edm::Run&, const edm::EventSetup&);
 
 private:
    bool FillHBHE;                  // Whether to store HBHE digi-level information or not
@@ -164,6 +175,9 @@ private:
    double RecHitTime[5184];
    uint32_t FlagWord[5184];
    uint32_t AuxWord[5184];
+   double RespCorrGain[5184];
+   double FCorr[5184];
+   double SamplesToAdd[5184];
 
    // HF rechits and digis
    int HFPulseCount;
@@ -228,6 +242,12 @@ private:
    TTree *OutputTree;
 
    const CaloGeometry *Geometry;
+   std::auto_ptr<HcalPulseContainmentManager> pulseCorr_;
+   bool correctForTimeslew;
+   bool correctForPhaseContainment;
+   double correctionPhaseNS;
+   HcalSimpleRecAlgo reco_;
+   HcalRecoParams* paramTS;  // firstSample & samplesToAdd from DB  
 
    void ClearVariables();
    void CalculateTotalEnergiesHBHE(const HBHERecHitCollection &RecHits);
@@ -238,7 +258,9 @@ private:
    void Initialize();
 };
 //---------------------------------------------------------------------------
-HcalNoiseAnalyzer::HcalNoiseAnalyzer(const edm::ParameterSet& iConfig)
+HcalNoiseAnalyzer::HcalNoiseAnalyzer(const edm::ParameterSet& iConfig) :
+   correctForTimeslew(true), correctForPhaseContainment(true),
+   correctionPhaseNS(6.0), reco_(correctForTimeslew, correctForPhaseContainment,correctionPhaseNS)
 {
    // Get stuff and initialize here
    FillHBHE = iConfig.getUntrackedParameter<bool>("FillHBHE", true);
@@ -484,6 +506,31 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
       IPhi[PulseCount] = id.iphi();
       Depth[PulseCount] = id.depth();
 
+      const HcalRecoParam *RecoParameters = paramTS->getValues(DetId(id).rawId());
+      int FirstSample = RecoParameters->firstSample();
+      int WindowSize = RecoParameters->samplesToAdd();
+      float FixedPhaseNs = RecoParameters->correctionPhaseNS();
+
+      double GainCorrection[4];
+      for(int iCap = 0; iCap < 4; iCap++)
+         GainCorrection[iCap] = Calibrations.respcorrgain(iCap);
+
+      double ChargeInWindow = 0;
+      for(int i = FirstSample; i < FirstSample + WindowSize; i++)
+         ChargeInWindow = ChargeInWindow + Charge[PulseCount][i];
+
+      const HcalPulseContainmentCorrection *Correction = pulseCorr_->get(id, WindowSize, FixedPhaseNs);
+      double fCorr = Correction->getCorrection(ChargeInWindow);
+
+      // These will give us the eCorr factor
+      // double EBeforeECorr = ChargeInWindow * RespCorrGain[0] * fCorr;
+      // double Ecorr = ECorr(id.ieta(), id.iphi(), EBeforeECorr);
+      // double FinalEnergy = EBeforeECorr * Ecorr;
+
+      RespCorrGain[PulseCount] = GainCorrection[0];
+      FCorr[PulseCount] = fCorr;
+      SamplesToAdd[PulseCount] = WindowSize;
+
       PulseCount = PulseCount + 1;
    }
 
@@ -668,7 +715,7 @@ void HcalNoiseAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup&
 void HcalNoiseAnalyzer::beginJob()
 {
    // Make branches in the output trees
-   OutputTree = FileService->make<TTree>("HcalNoiseTree", "Hcal noise tree version 1,1671");
+   OutputTree = FileService->make<TTree>("HcalNoiseTree", "Hcal noise tree version 1,2134");
 
    OutputTree->Branch("RunNumber", &RunNumber, "RunNumber/LL");
    OutputTree->Branch("EventNumber", &EventNumber, "EventNumber/LL");
@@ -723,6 +770,9 @@ void HcalNoiseAnalyzer::beginJob()
       OutputTree->Branch("RecHitTime", &RecHitTime, "RecHitTime[5184]/D");
       OutputTree->Branch("FlagWord", &FlagWord, "FlagWord[5184]/i");
       OutputTree->Branch("AuxWord", &AuxWord, "AuxWord[5184]/i");
+      OutputTree->Branch("RespCorrGain", &RespCorrGain, "RespCorrGain[5184]/D");
+      OutputTree->Branch("fCorr", &FCorr, "fCorr[5184]/D");
+      OutputTree->Branch("SamplesToAdd", &SamplesToAdd, "SamplesToAdd[5184]/D");
    }
 
    if(FillHF == true)
@@ -794,6 +844,32 @@ void HcalNoiseAnalyzer::endJob()
 {
 }
 //---------------------------------------------------------------------------
+void HcalNoiseAnalyzer::beginRun(const edm::Run & r, const edm::EventSetup & es)
+{
+   edm::ESHandle<HcalRecoParams> p;
+   es.get<HcalRecoParamsRcd>().get(p);
+   paramTS = new HcalRecoParams(*p.product());
+
+   // --------------- dump of ResoParams DB ---------------------------
+   //std::cout << " skdump in HcalHitReconstructor::beginRun   dupm RecoParams " << std::endl;
+   //std::ofstream skfile("skdumpRecoParamsNewFormat.txt");
+   //HcalDbASCIIIO::dumpObject(skfile, (*paramTS) );
+   // -----------------------------------------------------------------
+
+   pulseCorr_->beginRun(es); // to initialize HcalPulseShapes
+   reco_.beginRun(es);
+
+   reco_.setForData();
+   reco_.setLeakCorrection();
+}
+
+//------------------------------------------------------------------------------
+void HcalNoiseAnalyzer::endRun(const edm::Run &r, const edm::EventSetup &es)
+{
+   if (paramTS) delete paramTS;
+   reco_.endRun();
+}
+//------------------------------------------------------------------------------
 void HcalNoiseAnalyzer::ClearVariables()
 {
    RunNumber = 0;
@@ -855,6 +931,9 @@ void HcalNoiseAnalyzer::ClearVariables()
       RecHitTime[i] = 0;
       FlagWord[i] = 0;
       AuxWord[i] = 0;
+      RespCorrGain[i] = 0;
+      FCorr[i] = 0;
+      SamplesToAdd[i] = 0;
    }
 
    HFPulseCount = 0;
@@ -1011,6 +1090,9 @@ void HcalNoiseAnalyzer::CalculateTotalEnergiesEE(const EcalRecHitCollection &Rec
 //---------------------------------------------------------------------------
 void HcalNoiseAnalyzer::Initialize()
 {
+   pulseCorr_ =
+      std::auto_ptr<HcalPulseContainmentManager>(new HcalPulseContainmentManager(MaximumFractionalError));
+
    /*
    // Reads in ideal pulse shape - for fitting purposes
    vector<double> PulseShape;
@@ -1027,6 +1109,45 @@ void HcalNoiseAnalyzer::Initialize()
    for(unsigned int i = 1; i < PulseShape.size(); i++)
       CumulativeIdealPulse.push_back(CumulativeIdealPulse[i-1] + PulseShape[i]);
    */
+}
+//---------------------------------------------------------------------------
+double ECorr(int ieta, int iphi, double energy)
+{
+   // return energy correction factor for HBM channels 
+   // iphi=6 ieta=(-1,-15) and iphi=32 ieta=(-1,-7)
+   // I.Vodopianov 28 Feb. 2011
+   static const float low32[7]  = {0.741,0.721,0.730,0.698,0.708,0.751,0.861};
+   static const float high32[7] = {0.973,0.925,0.900,0.897,0.950,0.935,1};
+   static const float low6[15]  = {0.635,0.623,0.670,0.633,0.644,0.648,0.600,
+      0.570,0.595,0.554,0.505,0.513,0.515,0.561,0.579};
+   static const float high6[15] = {0.875,0.937,0.942,0.900,0.922,0.925,0.901,
+      0.850,0.852,0.818,0.731,0.717,0.782,0.853,0.778};
+
+   double slope, mid, en;
+   double corr = 1.0;
+
+   if (!(iphi==6 && ieta<0 && ieta>-16) && !(iphi==32 && ieta<0 && ieta>-8)) 
+      return corr;
+
+   int jeta = -ieta-1;
+   double xeta = (double) ieta;
+   if (energy > 0.) en=energy;
+   else en = 0.;
+
+   if (iphi == 32) {
+      slope = 0.2272;
+      mid = 17.14 + 0.7147*xeta;
+      if (en > 100.) corr = high32[jeta];
+      else corr = low32[jeta]+(high32[jeta]-low32[jeta])/(1.0+exp(-(en-mid)*slope));
+   }
+   else if (iphi == 6) {
+      slope = 0.1956;
+      mid = 15.96 + 0.3075*xeta;
+      if (en > 100.0) corr = high6[jeta];
+      else corr = low6[jeta]+(high6[jeta]-low6[jeta])/(1.0+exp(-(en-mid)*slope));
+   }
+
+   return corr;
 }
 //---------------------------------------------------------------------------
 DEFINE_FWK_MODULE(HcalNoiseAnalyzer);
